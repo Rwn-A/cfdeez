@@ -1,0 +1,26 @@
+# For reference on what each option means, see the README
+name: "ex0"
+
+mesh: { path: "uniform.msh" }
+output: { formats: [VTU], directory: "../.out" }
+physics: [Transport]
+fluid: { viscosity: 1e-6, density: 1 }
+
+velocity: {
+    inflow_profile: [1, 0]
+    initial_conditions: [1, 0]
+}
+
+boundaries: {
+    inflow: ["inflow"],
+    outflow: ["outflow"],
+    wall: ["wall"]
+}
+
+passives: [
+    {
+        name: "red dye",
+        diffusivity: 1e-6,
+        inflow_profile: 1
+    }
+]
