@@ -151,7 +151,7 @@ Below is a reference of all options available in the configuration file.
 - `timestep` (number): Time step size 
 - `steps` (integer): Total number of time steps to simulate
 - `output_frequency` (integer, optional): Output results every N time steps (default: 1)
-- `enable_pvd` (boolean, optional): Enable ParaView Data file generation (default: true)
+- `enable_pvd` (boolean, optional): Enable ParaView Data file generation (default: true if VTU is enabled above)
 
 #### `boundaries`
 **Type**: Object  

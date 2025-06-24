@@ -131,7 +131,7 @@ load_case :: proc(path: string, arr: ^vmem.Arena) -> (c: Case, success: bool) {
         c.timestep = time.timestep
         c.steps = time.steps
         c.output.frequency = time.output_frequency.? or_else 1
-        c.output.pvd = time.enable_pvd.? or_else true
+        c.output.pvd = time.enable_pvd.? or_else (true if slice.contains(schema.output.formats, Output_Option.VTU) else false)
     }else{
         c.steps = 1
         c.output.frequency = 1
