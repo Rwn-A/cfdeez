@@ -25,7 +25,7 @@ git clone https://github.com/Rwn-A/cfdeez
 cd cfdeez
 
 # Build the CLI tool
-odin build src/cmd/cli -out:cfdeez -o:aggressive
+odin build src/cmd/cli -out:cfdeez -o:speed
 
 # Run a basic example
 ./cfdeez ./examples/00_basic.fml
@@ -57,7 +57,7 @@ The primary goal of this project is to understand how CFD works, and write reada
 discritization schemes are currently not configurable.
 
 Features:
-- 🔃 2D incompressible flow (mostly works but is unstable so not part of the repo yet.)
+- 🔃 2D incompressible flow (steady-state is still unstable and not included right now.)
 - ✅ 2D transport
 - ✅ Unstructured meshes
 - ✅ Transient and steady-state
@@ -65,7 +65,7 @@ Features:
 - ✅ Configurable
 
 Currently, we have no 1st party post-processing tools, best bet is to output to vtu and use something like
-[ParaView]((https://www.paraview.org/))
+[ParaView](https://www.paraview.org/)
 
 ### Potential Features Under Consideration
 In no particular order, the below features are things we are interested in but have no current plans to attempt to implement.
@@ -97,11 +97,9 @@ To build a `.msh` file [gmsh](https://gmsh.info/) is required. Or you can conver
 ### Config Options
 Below is a reference of all options available in the configuration file.
 
-**Note:** Defining some of the below options will require that other options also be defined. The application will tell you
-if your missing an option and you can refer here for what it means and how to define it.
-> [!NOTE]
-> Section is blank for now until project matures.
-
+> [!TIP]
+> Defining some of the below options will require that other options also be defined. The application will tell you
+> if your missing an option and you can refer here for what it means and how to define it.
 
 ## License
 The CFD library and application code are licensed under the **GPL** license.

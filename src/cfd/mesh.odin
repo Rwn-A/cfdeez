@@ -23,10 +23,10 @@ Vector :: linalg.Vector2f64
 Boundary_Id :: int
 
 Mesh :: struct {
-    cells: #soa[]Cell,
-    faces: #soa[]Face,
-    vertices: #soa[]Vector,
-    boundary_names: map[string]Boundary_Id,
+	cells:          #soa[]Cell,
+	faces:          #soa[]Face,
+	vertices:       #soa[]Vector,
+	boundary_names: map[string]Boundary_Id,
 }
 
 FaceId :: int
@@ -34,35 +34,35 @@ CellId :: int
 VertexId :: int
 
 Cell :: struct {
-    position: Vector,
-    faces: []FaceId,
-    volume: f64,
-    vertices: []VertexId,
+	position: Vector,
+	faces:    []FaceId,
+	volume:   f64,
+	vertices: []VertexId,
 }
 
 Face :: struct {
-    position, normal: Vector,
-    primary: CellId,
-    secondary: Maybe(CellId),
-    boundary_tag: Maybe(Boundary_Id),
-    area: f64,
+	position, normal: Vector,
+	primary:          CellId,
+	secondary:        Maybe(CellId),
+	boundary_tag:     Maybe(Boundary_Id),
+	area:             f64,
 }
 
 
 distance_cell :: proc(P, N: Cell) -> f64 {
-    return linalg.distance(P.position, N.position)
+	return linalg.distance(P.position, N.position)
 }
 
 //distance between cells projected onto face normal. Used in orthogonal corrections
 //equivalent to distance_cell in a structured mesh.
 distance_cell_ortho :: proc(P, N: Cell, f: Face) -> f64 {
-    return linalg.dot(N.position - P.position, f.normal)
+	return linalg.dot(N.position - P.position, f.normal)
 }
 
 
 distance_face :: proc(P: Cell, f: Face) -> f64 {
-    d := f.normal * (linalg.dot(f.normal, f.position - P.position))
-    return linalg.length(d)
+	d := f.normal * (linalg.dot(f.normal, f.position - P.position))
+	return linalg.length(d)
 }
 
 

@@ -1,13 +1,13 @@
 name: "ex2"
 
-mesh: { path: "uniform.msh" }
+mesh: { path: "channel_obst.msh" }
 output: { formats: [VTU], directory: "../.out" }
 physics: [Transport, IncFlow]
-fluid: { viscosity: 1e-2, density: 1 }
+fluid: { viscosity: 2e-2, density: 1 }
 
 velocity: {
-    inflow_profile: [0.5, 0]
-    initial_conditions: [0.5, 0]
+    inflow_profile: [2, 0]
+    initial_conditions: [0.1, 0]
 }
 
 boundaries: {
@@ -25,7 +25,7 @@ passives: [
 ]
 
 time: {
-    timestep: 0.1
-    steps: 10
+    timestep: 0.001
+    steps: 100
     output_frequency: 1
 }

@@ -15,6 +15,7 @@ import "../cfd"
 import cfd_io"../cfd/io"
 
 // TODO: validate config options make sense.
+//TODO: validate boundaries
 
 Physics_Option :: enum {Transport, IncFlow}
 Output_Option :: enum {CSV, VTU}
@@ -144,20 +145,17 @@ load_case :: proc(path: string, arr: ^vmem.Arena) -> (c: Case, success: bool) {
         return {}, false
     }
 
-    //allocated in the arena, we can just forget about it.
-    pool := new(cfd.Field_View_Pool, vmem.arena_allocator(c.arena))
-    cfd.field_pool_init(pool, c.mesh, vmem.arena_allocator(c.arena))
+    cfd.field_pool_init(&cfd.field_pool, c.mesh)
 
-    empty_field :: proc(pool: ^cfd.Field_View_Pool) -> cfd.Field {
-        return {data = cfd.field_pool_acquire_field(pool), boundary_conditions = make(cfd.Boundaries), pool = pool}
+    empty_field :: proc() -> cfd.Field {
+        return {data = cfd.field_pool_cell_data(&cfd.field_pool), boundary_conditions = make(cfd.Boundaries)}
     }
 
     c.fields.u.components = {
-        empty_field(pool),
-        empty_field(pool),
+        empty_field(),
+        empty_field(),
     }
-    c.fields.u.pool = pool
-    c.fields.p = empty_field(pool)
+    c.fields.p = empty_field()
 
     load_ic(c.mesh, c.fields.u.components.x, schema.velocity.initial_conditions.x)
     load_ic(c.mesh, c.fields.u.components.y,  schema.velocity.initial_conditions.y)
@@ -167,7 +165,7 @@ load_case :: proc(path: string, arr: ^vmem.Arena) -> (c: Case, success: bool) {
     diffusivity_builder := make([dynamic]f64)
     if passives, has := schema.passives.?; has {
         for passive in passives {
-            field := empty_field(pool)
+            field := empty_field()
             append(&name_builder, strings.clone(passive.name))
             append(&diffusivity_builder, passive.diffusivity)
             load_ic(c.mesh, field, passive.initial_condition) or_return

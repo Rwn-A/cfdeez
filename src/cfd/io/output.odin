@@ -163,7 +163,7 @@ to_vtu :: proc(
             fmt.fprintfln(w.fd, "%e", v.y)
             fmt.fprintfln(w.fd, "%e", f64(0))
         }
-        defer close_tag(&w)
+        close_tag(&w)
 
     }
 
@@ -262,7 +262,6 @@ write_pvd_header :: proc(fd: os.Handle) -> VTU_Writer {
 }
 
 write_pvd_entry :: proc(w: ^VTU_Writer, filename: string, time: f64) {
-    //f.write(f'    <DataSet timestep="{timestep}" group="" part="0" file="{fname}"/>\n')
     strconv_buf: [16]u8
     open_tag(w, .DataSet, {
         {"timestep", strconv.ftoa(strconv_buf[:], time, 'f', 8, 64)},
@@ -275,5 +274,5 @@ write_pvd_entry :: proc(w: ^VTU_Writer, filename: string, time: f64) {
 
 write_pvd_end :: proc(w: ^VTU_Writer) {
     close_tag(w) //close Collection
-    close_tag(w) //close VTKFiel
+    close_tag(w) //close VTKFile
 }

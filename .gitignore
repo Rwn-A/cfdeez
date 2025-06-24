@@ -1,4 +1,5 @@
 .build
 .out
-projection.odin
 simple.odin
+notes.md
+odinfmt.json
