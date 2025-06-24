@@ -101,6 +101,93 @@ Below is a reference of all options available in the configuration file.
 > Defining some of the below options will require that other options also be defined. The application will tell you
 > if your missing an option and you can refer here for what it means and how to define it.
 
+#### `name`
+**Type**: String  
+**Required**: Yes  
+**Description**: Identifier for the simulation case.
+
+#### `mesh`
+**Type**: Object  
+**Required**: Yes  
+**Description**: Defines the computational mesh for the simulation.
+
+##### Parameters
+- `path` (string): Path to the mesh file
+
+#### `fluid`
+**Type**: Object  
+**Required**: Yes  
+**Description**: Defines fluid material properties.
+
+##### Parameters
+- `density` (number): Fluid density 
+- `viscosity` (number): Dynamic viscosity 
+
+#### `physics`
+**Type**: Array  
+**Required**: Yes  
+**Description**: List of physics models to enable in the simulation.
+
+##### Supported Models
+- `IncFlow`: Incompressible flow (Navier-Stokes)
+- `Transport`: Scalar transport equations
+
+#### `output`
+**Type**: Object  
+**Required**: Yes  
+**Description**: Controls simulation output settings.
+
+##### Parameters
+- `directory` (string): Output directory path
+- `formats` (array): List of output formats
+  - Supported formats: `VTU`, `CSV`
+
+#### `time`
+**Type**: Object  
+**Required**: No  
+**Description**: Time integration and output control parameters.
+
+##### Parameters
+- `timestep` (number): Time step size 
+- `steps` (integer): Total number of time steps to simulate
+- `output_frequency` (integer, optional): Output results every N time steps (default: 1)
+- `enable_pvd` (boolean, optional): Enable ParaView Data file generation (default: true)
+
+#### `boundaries`
+**Type**: Object  
+**Required**: Yes  
+**Description**: Maps boundary condition types to mesh boundary names.
+
+##### Parameters
+- `wall` (array, optional): List of mesh boundary names for wall (no-slip) conditions
+- `inflow` (array, optional): List of mesh boundary names for inflow conditions
+- `outflow` (array, optional): List of mesh boundary names for outflow conditions
+
+#### `velocity`
+**Type**: Object  
+**Required**: Yes  
+**Description**: Velocity field boundary conditions and initial conditions.
+
+##### Parameters
+- `inflow_profile` (array[2]): Velocity components at inflow boundaries [u, v]
+  - Each component can be: number, expression
+- `initial_conditions` (array[2]): Initial velocity field throughout domain [u, v]
+  - Each component can be: number, string (file path), expression
+
+#### `passives`
+**Type**: Array  
+**Required**: No  
+**Description**: Defines passive scalar species for transport simulation.
+
+##### Parameters (per passive scalar)
+- `name` (string): Descriptive name for the scalar
+- `diffusivity` (number): Molecular diffusivity 
+- `inflow_profile` (number or expression, optional): Scalar concentration at inflow boundaries
+- `initial_condition` (number, string, or expression, optional): Initial scalar field
+  - Number: uniform value
+  - String: file path to initial condition data
+  - Expression: mathematical expression
+
 ## License
 The CFD library and application code are licensed under the **GPL** license.
 The FML configuration language is licensed separately under the **MIT** license.
