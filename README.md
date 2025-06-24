@@ -57,7 +57,7 @@ The primary goal of this project is to understand how CFD works, and write reada
 discritization schemes are currently not configurable.
 
 Features:
-- 🔃 2D incompressible flow (steady-state is still unstable and not included right now.)
+- ✅ 2D incompressible flow 
 - ✅ 2D transport
 - ✅ Unstructured meshes
 - ✅ Transient and steady-state

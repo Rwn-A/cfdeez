@@ -67,10 +67,18 @@ main :: proc() {
 	for i in 1 ..= c.steps {
 		if .IncFlow in c.physics {
 			if _, has := c.timestep.?; !has {
-				log.error("Steady state incompressible flow simulations are not yet supported.")
-				return
-			}
-			err := solvers.projection(
+				err := solvers.simple(
+					c.mesh,
+					&c.fields.u,
+					&c.fields.p,
+					&mass_flux,
+					{&u_system_x, &u_system_y},
+					c.fluid.viscosity,
+					c.fluid.density,
+				)
+				if err != nil {log.errorf("simulation failed. %v", err);return}
+			}else{
+				err := solvers.projection(
 				c.mesh,
 				&c.fields.u,
 				&c.fields.p,
@@ -79,8 +87,10 @@ main :: proc() {
 				c.fluid.viscosity,
 				c.fluid.density,
 				c.timestep.?,
-			)
-			if err != nil {log.errorf("simulation failed. %v", err);return}
+				)
+				if err != nil {log.errorf("simulation failed. %v", err);return}
+			}
+			
 		}
 
 		if .Transport in c.physics {

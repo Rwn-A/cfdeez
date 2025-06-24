@@ -1,6 +1,6 @@
-name: "ex2"
+name: "ex_steady"
 
-mesh: { path: "channel_obst.msh" }
+mesh: { path: "obst.msh" }
 output: { formats: [VTU], directory: "../.out" }
 physics: [Transport, IncFlow]
 fluid: { viscosity: 2e-2, density: 1 }
@@ -23,10 +23,3 @@ passives: [
         inflow_profile: 1
     }
 ]
-
-time: {
-    timestep: 0.001
-    steps: 100
-    output_frequency: 1
-}
-
