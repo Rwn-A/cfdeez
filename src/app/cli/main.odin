@@ -175,7 +175,7 @@ run :: proc(config_path: string) -> bool {
 	sync.cond_signal(&output_ready)
 	sync.unlock(&output_buffers.mutex)
 
-	thread.join(output_thread)
+	thread.destroy(output_thread)
 
 	return true
 }

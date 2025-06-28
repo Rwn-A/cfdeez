@@ -141,7 +141,8 @@ load_case :: proc(c: ^Case, path: string) -> (success: bool) {
 		return false
 	}
 
-	os.set_current_directory(filepath.dir(path))
+	config_directory := filepath.dir(path, scratch_allocator)
+	os.set_current_directory(config_directory)
 
 	if err := vmem.arena_init_growing(&c.arena); err != nil {
 		log.fatal("Unable to allocate.")
