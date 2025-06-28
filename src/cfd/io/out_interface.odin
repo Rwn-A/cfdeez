@@ -21,14 +21,17 @@ import "../../cfd"
 import "core:fmt"
 import "core:path/filepath"
 
-Output_Fn :: #type proc(
-	mesh: cfd.Mesh,
-	vfs: []cfd.Vector_Field,
-	sfs: []cfd.Scalar_Field,
-	vf_names, sf_names: []string,
-	directory, sim_name: string,
-	step: int,
-) -> (string, bool)
+Out_Scalar_Field :: struct {
+	data: []f64,
+	name: string,
+}
+
+Out_Vector_Field :: struct {
+	data: [cfd.VF_COMPONENTS][]f64,
+	name: string,
+}
+
+Output_Fn :: #type proc(mesh: cfd.Mesh, vfs: []Out_Vector_Field, sfs: []Out_Scalar_Field, path: string) -> bool
 
 output_path :: proc(dir: string, sim_name: string, ext: string, step: int) -> string {
 	@(static) output_path_bufffer: [128]byte

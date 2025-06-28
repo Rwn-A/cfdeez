@@ -18,48 +18,41 @@
 package cfd_io
 
 import "../../cfd"
-import "core:os"
-import "core:log"
 import "core:fmt"
+import "core:log"
+import "core:os"
 
-write_csv :: proc(
-    mesh: cfd.Mesh,
-    vfs: []cfd.Vector_Field,
-    sfs: []cfd.Scalar_Field,
-    vf_names, sf_names: []string,
-    directory, sim_name: string,
-    step: int,
-) -> (out: string, ok: bool) {
-    output_path := output_path(directory, sim_name, "csv", step)
-    file, err := os.open(output_path, os.O_CREATE | os.O_TRUNC | os.O_RDWR, 0o777)
-    if err != nil {
-        log.errorf("Could not create output CSV file %s", output_path)
-        return "", false
-    }
-    defer os.close(file)
+write_csv :: proc(mesh: cfd.Mesh, vfs: []Out_Vector_Field, sfs: []Out_Scalar_Field, path: string) -> (ok: bool) {
+	file, err := os.open(path, os.O_CREATE | os.O_TRUNC | os.O_RDWR, 0o777)
+	if err != nil {
+		log.errorf("Could not create output CSV file %s", path)
+		return false
+	}
+	defer os.close(file)
 
 
-    fmt.fprintf(file, "x,y")
-    for name in vf_names {
-    	fmt.fprintf(file, ",%s.x", name)
-    	fmt.fprintf(file, ",%s.y", name)
-    }
-    for name in sf_names {
-    	fmt.fprintf(file, ",%", name)
-    }
-    fmt.fprintf(file, "\n")
+	fmt.fprintf(file, "x,y")
 
 
-    for cell, i in mesh.cells {
-    	fmt.fprintf(file, "%e, %e", cell.position.x, cell.position.y)
-    	for vf in vfs {
-    		v := cfd.vector_field_at(vf, i)
-    		fmt.fprintf(file, ",%e,%e", v.x, v.y)
-    	}
-    	for sf in sfs {
-    		fmt.fprintf(file, ",e", sf.data[i])
-    	}
-        fmt.fprintf(file, "\n")
-    }
-    return output_path, true
+	for vf in vfs {
+		fmt.fprintf(file, ",%s.x", vf.name)
+		fmt.fprintf(file, ",%s.y", vf.name)
+	}
+	for sf in sfs {
+		fmt.fprintf(file, ",%", sf.name)
+	}
+	fmt.fprintf(file, "\n")
+
+
+	for cell, i in mesh.cells {
+		fmt.fprintf(file, "%e, %e", cell.position.x, cell.position.y)
+		for vf in vfs {
+			fmt.fprintf(file, ",%e,%e", vf.data.x[i], vf.data.y[i])
+		}
+		for sf in sfs {
+			fmt.fprintf(file, ",e", sf.data[i])
+		}
+		fmt.fprintf(file, "\n")
+	}
+	return true
 }

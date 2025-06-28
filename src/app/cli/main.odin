@@ -20,6 +20,8 @@ import "core:log"
 import vmem "core:mem/virtual"
 import "core:os"
 import "core:slice"
+import "core:thread"
+import "core:sync"
 
 import "../../app"
 import "../../cfd"
@@ -40,69 +42,71 @@ main :: proc() {
 	}
 }
 
-run :: proc(config_path: string) -> bool {
+// output is on a seperate thread. This only makes a difference for transient sims with lots file writes
+// I'm not experienced with this sort of thing, from what i can gather this should be okay?. 
+// If the output is really slow then maybe a I'll add a queue or something
 
+Thread_State :: struct {
+	buffers: ^Output_Buffers,
+	step: ^int,
+	done: ^bool,
+	ready: ^sync.Cond,
+}
+
+Output_Buffers :: struct {
+	out_u: cfd_io.Out_Vector_Field,
+	out_scalars: []cfd_io.Out_Scalar_Field, // index 0 is pressure.
+
+	mutex: sync.Mutex,
+}
+
+run :: proc(config_path: string) -> bool {
 	log.info("Loading config...")
+
 	c: app.Case
 	app.load_case(&c, config_path) or_return
 	defer vmem.arena_destroy(&c.arena)
-
+	
 	log.info("Preparing Simulation...")
 
-	if !os.exists(c.output.directory) {
-		if err := os.make_directory(c.output.directory); err != nil {
-			log.errorf("Unable to create output directory %s", c.output.directory)
-			return false
-		}
-	}
-
 	arena_alloc := vmem.arena_allocator(&c.arena)
-
 	passive_system := cfd.linear_system_builder_new(c.mesh, arena_alloc)
 	u_system_x := cfd.linear_system_builder_new(c.mesh, arena_alloc) //pressure can reuse one of these.
 	u_system_y := cfd.linear_system_builder_new(c.mesh, arena_alloc)
 
-	_, is_transient := c.timestep.?
-
-	write_pvd := .VTK in c.output.format && is_transient
-	pvd_writer: cfd_io.VTK_Writer
-	if write_pvd {
-		pvd_writer = cfd_io.vtk_start_pvd(c.output.directory, c.name) or_return
+	//prepare buffers for the output thread.
+	output_buffers := Output_Buffers{
+		out_u = {cfd.field_pool_vector_cell_data(&c.fp), "velocity"},
 	}
-	defer if write_pvd {
-		cfd_io.vtk_end_pvd(&pvd_writer)
+	out_scalars := make([dynamic]cfd_io.Out_Scalar_Field)
+	defer delete(out_scalars)
+
+	append(&out_scalars, cfd_io.Out_Scalar_Field{cfd.field_pool_cell_data(&c.fp), "pressure"})
+	for name in c.passive_names{
+		append(&out_scalars, cfd_io.Out_Scalar_Field{cfd.field_pool_cell_data(&c.fp), name})
 	}
+	output_buffers.out_scalars = out_scalars[:]
 
-	output_scalar_fields := slice.concatenate([][]cfd.Scalar_Field{[]cfd.Scalar_Field{c.fields.p}, c.fields.passives})
-	output_scalar_names := slice.concatenate([][]string{[]string{"pressure"}, c.passive_names})
-	defer delete(output_scalar_fields)
-	defer delete(output_scalar_names)
+	done: bool
+	output_ready := sync.Cond{}
+	step := 0
 
-	output :: proc(c: app.Case, sfs: []cfd.Scalar_Field, sf_names: []string, step: int) -> (vtk_name: string, ok: bool) {
-		dir := c.output.directory
-		for opt in c.output.format {
-			switch opt {
-			case .VTK:
-				vtk_name = cfd_io.vtk_write_vtu(
-					c.mesh,
-					{c.fields.u},
-					sfs,
-					{"velocity"},
-					sf_names,
-					dir,
-					c.name,
-					step,
-				) or_return
-			case .CSV:
-				_ = cfd_io.write_csv(c.mesh, {c.fields.u}, sfs, {"velocity"}, sf_names, dir, c.name, step) or_return
-			}
-		}
-		return vtk_name, true
+	output_thread_state := Thread_State{
+		buffers = &output_buffers,
+		done = &done,
+		ready = &output_ready,
+		step = &step
 	}
 
-	if vtk_name, has := output(c, output_scalar_fields, output_scalar_names, 0); has && write_pvd {
-		cfd_io.vtk_write_pvd_entry(&pvd_writer, vtk_name, 0)
-	}
+	output_thread := thread.create_and_start_with_poly_data2(&output_thread_state, &c, write_output)
+
+	// output initial conditions 
+	sync.lock(&output_buffers.mutex)
+    write_output_buffers(output_buffers, c)
+    sync.cond_signal(&output_ready)
+    sync.unlock(&output_buffers.mutex)
+
+	dt, is_transient := c.timestep.?
 
 	update_mass_flux :: proc(mesh: cfd.Mesh, u: ^cfd.Vector_Field, flux: cfd.Face_Data, density: f64) {
 		volume_flux := cfd.field_flux(mesh, u)
@@ -114,6 +118,7 @@ run :: proc(config_path: string) -> bool {
 	log.info("Simulation running...")
 
 	for i in 1 ..= c.steps {
+		step = i
 		if .IncFlow in c.physics && is_transient {
 			err := solvers.pressure_projection(
 				c.mesh,
@@ -121,10 +126,10 @@ run :: proc(config_path: string) -> bool {
 				{u = &c.fields.u, p = &c.fields.p},
 				{&u_system_x, &u_system_y},
 				c.fluid.viscosity,
-				c.timestep.?,
+				dt,
 			)
 			if err != .None {
-				log.info("Simulation failed.");return false
+				log.info("Simulation failed."); done = true; return false
 			}
 		}
 		if .IncFlow in c.physics && !is_transient {
@@ -136,7 +141,7 @@ run :: proc(config_path: string) -> bool {
 				c.fluid.viscosity,
 			)
 			if err != .None {
-				log.info("Simulation failed.");return false
+				log.info("Simulation failed."); done = true; return false
 			}
 		}
 		update_mass_flux(c.mesh, &c.fields.u, mass_flux, c.fluid.density)
@@ -152,17 +157,67 @@ run :: proc(config_path: string) -> bool {
 					c.timestep,
 				)
 				if err != .None {
-					log.info("Simulation failed.");return false
+					log.info("Simulation failed."); done = true; return false
 				}
 			}
 		}
 		if i % c.output.frequency == 0 {
-			if vtk_name, ok := output(c, output_scalar_fields, output_scalar_names, i); ok && write_pvd {
-				cfd_io.vtk_write_pvd_entry(&pvd_writer, vtk_name, f64(i) * c.timestep.?)
-			}
+			sync.lock(&output_buffers.mutex)
+            write_output_buffers(output_buffers, c)
+            sync.cond_signal(&output_ready)
+            sync.unlock(&output_buffers.mutex)
 		}
 	}
 	log.infof("Simulation complete! Output written to %s", c.output.directory)
 
+
+	sync.lock(&output_buffers.mutex)
+    done = true
+    sync.cond_signal(&output_ready)
+    sync.unlock(&output_buffers.mutex)
+    
+    thread.join(output_thread)
+
 	return true
+}
+
+write_output_buffers :: proc(buffers: Output_Buffers, c: app.Case) {
+	copy(buffers.out_u.data.x, c.fields.u.components.x.data)
+	copy(buffers.out_u.data.y, c.fields.u.components.y.data)
+	copy(buffers.out_scalars[0].data, c.fields.p.data)
+	for i in 1..<len(buffers.out_scalars) {
+		copy(buffers.out_scalars[i].data, c.fields.passives[i - 1].data)
+	}
+}
+
+//Note: I know we pass in the case, but I do not access the fields from that, big ol race condition.
+write_output :: proc(state: ^Thread_State, 	c: ^app.Case) {
+	pvd_writer: cfd_io.VTK_Writer
+
+	dt, is_transient := c.timestep.?
+	if is_transient {
+		pvd_writer, _ = cfd_io.vtk_start_pvd(c.output.directory, c.name)
+	}
+	defer if is_transient {
+		cfd_io.vtk_end_pvd(&pvd_writer)
+	}
+
+	for !state.done^{
+		sync.lock(&state.buffers.mutex)
+		sync.cond_wait(state.ready, &state.buffers.mutex)
+
+		if !state.done^ {
+			if .VTK in c.output.format{
+				path := cfd_io.output_path(c.output.directory, c.name, "vtu", state.step^)
+				if ok := cfd_io.vtk_write_vtu(c.mesh, {state.buffers.out_u}, state.buffers.out_scalars, path); ok {
+					cfd_io.vtk_write_pvd_entry(&pvd_writer, path, dt * f64(state.step^))
+				}
+			}
+			if .CSV in c.output.format{
+				path := cfd_io.output_path(c.output.directory, c.name, "csv", state.step^)
+				cfd_io.write_csv(c.mesh, {state.buffers.out_u}, state.buffers.out_scalars, path) 
+			}
+		}
+		sync.unlock(&state.buffers.mutex)
+	}	
 }
