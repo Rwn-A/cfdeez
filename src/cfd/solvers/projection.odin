@@ -38,8 +38,8 @@ pressure_projection :: proc(
 		cfd.linear_system_builder_start_cell(systems[1], cell_id)
 		defer cfd.linear_system_builder_end_cell(systems[0])
 		defer cfd.linear_system_builder_end_cell(systems[1])
-		cfd.add_advection(systems[0], mesh, s.u.components.x, cfd.field_flux(mesh, s.u), cell_id)
-		cfd.add_advection(systems[1], mesh, s.u.components.y, cfd.field_flux(mesh, s.u), cell_id)
+		cfd.add_advection(systems[0], mesh, &s.u.components.x, cfd.field_flux(mesh, s.u), cell_id)
+		cfd.add_advection(systems[1], mesh, &s.u.components.y, cfd.field_flux(mesh, s.u), cell_id)
 		cfd.add_time(systems[0], mesh, s.u.components.x, cell_id, dt)
 		cfd.add_time(systems[1], mesh, s.u.components.y, cell_id, dt)
 		systems[0].mode = .Sub;systems[1].mode = .Sub

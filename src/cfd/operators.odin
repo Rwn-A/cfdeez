@@ -165,16 +165,21 @@ add_laplacian :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: ^Scalar_Fi
 add_advection :: proc(
 	lsb: ^Linear_System_Builder,
 	mesh: Mesh,
-	field: Scalar_Field,
+	field: ^Scalar_Field,
 	volume_flux: Face_Data,
 	cell_id: CellId,
 ) {
 	cell :=  mesh.cells[cell_id]
+	grad := field_gradient(mesh, field)
 	for face_id in cell.faces{
 		face := face_ensure_outward(cell, mesh.faces[face_id])
 		flux := volume_flux[face_id] if cell_is_owner(cell_id, face) else -volume_flux[face_id]
 		if neighbour_id, has := cell_neighbour(cell_id, face); has {
-			lsb.row_builder[cell_id if flux >= 0 else neighbour_id] += flux * f64(lsb.mode)
+			upwind_idx := cell_id if flux >= 0 else neighbour_id
+			lsb.row_builder[upwind_idx] += flux * f64(lsb.mode)
+			//linear upwind explicit term, didn't add to BC's
+			explicit_contrib := linalg.dot(cell_face_delta(cell, face),  Vector{grad.x[upwind_idx], grad.y[upwind_idx]})
+			lsb.source_terms[cell_id] -= flux * explicit_contrib * f64(lsb.mode)
 		} else {
 			id := face.secondary.(BoundaryId)
 			bc := field.bnds[id] or_else log.panicf("Boundary id %d was not set on field.", id)

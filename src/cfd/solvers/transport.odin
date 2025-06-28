@@ -35,7 +35,7 @@ transport :: proc(
 	for _, cell_id in mesh.cells {
 		cfd.linear_system_builder_start_cell(system, cell_id)
 		defer cfd.linear_system_builder_end_cell(system)
-		cfd.add_advection(system, mesh, s.scalar^, mass_flux, cell_id)
+		cfd.add_advection(system, mesh, s.scalar, mass_flux, cell_id)
 		if dt, ok := dt.?; ok do cfd.add_time(system, mesh, s.scalar^, cell_id, dt / s.density)
 		system.mode = .Sub
 		cfd.add_laplacian(system, mesh, s.scalar, cell_id, diffusivity)

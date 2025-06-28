@@ -1,6 +1,6 @@
 name: "ex3"
 
-mesh: { path: "channel.msh" }
+mesh: { path: "backward_step.msh" }
 output: { formats: [VTK], directory: "../.out" }
 physics: [IncFlow]
 fluid: { viscosity: 2e-2, density: 1 }
