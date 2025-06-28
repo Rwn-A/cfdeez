@@ -41,10 +41,13 @@ main :: proc() {
 }
 
 run :: proc(config_path: string) -> bool {
+
 	log.info("Loading config...")
 	c: app.Case
 	app.load_case(&c, config_path) or_return
 	defer vmem.arena_destroy(&c.arena)
+
+	log.info("Preparing Simulation...")
 
 	if !os.exists(c.output.directory) {
 		if err := os.make_directory(c.output.directory); err != nil {
@@ -53,13 +56,11 @@ run :: proc(config_path: string) -> bool {
 		}
 	}
 
-	context.allocator = vmem.arena_allocator(&c.arena)
+	arena_alloc := vmem.arena_allocator(&c.arena)
 
-	passive_system := cfd.linear_system_builder_new(c.mesh)
-	u_system_x := cfd.linear_system_builder_new(c.mesh) //pressure can reuse one of these.
-	u_system_y := cfd.linear_system_builder_new(c.mesh)
-
-	log.info("Preparing Simulation...")
+	passive_system := cfd.linear_system_builder_new(c.mesh, arena_alloc)
+	u_system_x := cfd.linear_system_builder_new(c.mesh, arena_alloc) //pressure can reuse one of these.
+	u_system_y := cfd.linear_system_builder_new(c.mesh, arena_alloc)
 
 	_, is_transient := c.timestep.?
 
@@ -74,8 +75,11 @@ run :: proc(config_path: string) -> bool {
 
 	output_scalar_fields := slice.concatenate([][]cfd.Scalar_Field{[]cfd.Scalar_Field{c.fields.p}, c.fields.passives})
 	output_scalar_names := slice.concatenate([][]string{[]string{"pressure"}, c.passive_names})
+	defer delete(output_scalar_fields)
+	defer delete(output_scalar_names)
 
 	output :: proc(c: app.Case, sfs: []cfd.Scalar_Field, sf_names: []string, step: int) -> (vtk_name: string, ok: bool) {
+		dir := c.output.directory
 		for opt in c.output.format {
 			switch opt {
 			case .VTK:
@@ -85,21 +89,12 @@ run :: proc(config_path: string) -> bool {
 					sfs,
 					{"velocity"},
 					sf_names,
-					c.output.directory,
+					dir,
 					c.name,
 					step,
 				) or_return
 			case .CSV:
-				_ = cfd_io.write_csv(
-					c.mesh,
-					{c.fields.u},
-					sfs,
-					{"velocity"},
-					sf_names,
-					c.output.directory,
-					c.name,
-					step,
-				) or_return
+				_ = cfd_io.write_csv(c.mesh, {c.fields.u}, sfs, {"velocity"}, sf_names, dir, c.name, step) or_return
 			}
 		}
 		return vtk_name, true

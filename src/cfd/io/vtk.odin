@@ -24,6 +24,8 @@ import "core:io"
 import sa"core:container/small_array"
 import "core:log"
 import "core:strconv"
+import "core:encoding/base64"
+import "core:mem"
 
 VTK_Tag :: enum u8 {
     VTKFile,
@@ -58,6 +60,28 @@ vtk_writer_destroy :: proc(vtk_w: ^VTK_Writer) {
     os.close(vtk_w.handle)
 }
 
+vtk_write_binary_data :: proc(vtk_w: ^VTK_Writer, data: []u8) {
+    data_size := u32(len(data))
+    
+    // have to have room for length information at start of blob
+    total_size := size_of(u32) + len(data)
+    binary_block := make([]u8, total_size)
+    defer delete(binary_block)
+    
+    mem.copy_non_overlapping(raw_data(binary_block[0:4]), &data_size, size_of(u32))
+    mem.copy_non_overlapping(raw_data(binary_block[4:]), raw_data(data), len(data))
+    
+    encoded := base64.encode(binary_block)
+    defer delete(encoded)
+    
+    fmt.fprint(vtk_w.handle, encoded)
+}
+
+@(private="file")
+slice_to_bytes :: proc(data: []$T) -> []u8 {
+    return mem.slice_data_cast([]u8, data)
+}
+
 vtk_open_tag :: proc(vtk_w: ^VTK_Writer, t: VTK_Tag, attrib: [][2]string = {}) {
     sa.push(&vtk_w.open, t)
     fmt.fprintf(vtk_w.handle, "<%s", t)
@@ -71,8 +95,6 @@ vtk_close_tag :: proc(vtk_w: ^VTK_Writer) {
     fmt.fprintfln(vtk_w.handle, "</%s>", sa.pop_back(&vtk_w.open))
 }
 
-
-// TODO: Add Binary data instead of ascii, i think we can use vendor:zlib and core:encoding/base64
 vtk_write_vtu :: proc(
     mesh: cfd.Mesh,
     vfs: []cfd.Vector_Field,
@@ -89,7 +111,9 @@ vtk_write_vtu :: proc(
     fmt.fprintln(vtk_w.handle, "<?xml version=\"1.0\"?>")
 
     vtk_open_tag(&vtk_w, .VTKFile, {
-        {"type", "UnstructuredGrid"}, {"version", "0.1"}, {"byte_order", "LittleEndian"},
+        {"type", "UnstructuredGrid"}, 
+        {"version", "0.1"}, 
+        {"byte_order", "LittleEndian"},
     })
     defer vtk_close_tag(&vtk_w)
 
@@ -109,15 +133,23 @@ vtk_write_vtu :: proc(
         defer vtk_close_tag(&vtk_w)
 
         vtk_open_tag(&vtk_w, .DataArray, {
-            {"type", "Float64"}, {"Name", "Points"}, {"NumberOfComponents", "3"}, {"format", "ascii"},
+            {"type", "Float64"}, 
+            {"Name", "Points"}, 
+            {"NumberOfComponents", "3"}, 
+            {"format", "binary"},
         })
-        for v in mesh.vertices{
-            fmt.fprintfln(vtk_w.handle, "%e", v.x)
-            fmt.fprintfln(vtk_w.handle, "%e", v.y)
-            fmt.fprintfln(vtk_w.handle, "%e", f64(0))
+        
+        points_data := make([]f64, len(mesh.vertices) * 3)
+        defer delete(points_data)
+        
+        for v, i in mesh.vertices {
+            points_data[i*3 + 0] = v.x
+            points_data[i*3 + 1] = v.y
+            points_data[i*3 + 2] = 0.0
         }
+        
+        vtk_write_binary_data(&vtk_w, slice_to_bytes(points_data))
         vtk_close_tag(&vtk_w)
-
     }
 
     // mesh connectivity
@@ -126,41 +158,60 @@ vtk_write_vtu :: proc(
         defer vtk_close_tag(&vtk_w)
 
         vtk_open_tag(&vtk_w, .DataArray, {
-            {"type", "Int32"}, {"Name", "connectivity"}, {"format", "ascii"},
+            {"type", "Int32"}, 
+            {"Name", "connectivity"}, 
+            {"format", "binary"},
         })
 
-        cell_offsets := make([dynamic]int)
-        cur_offset := 0
-        defer delete(cell_offsets)
-
+        connectivity_data := make([dynamic]i32)
+        defer delete(connectivity_data)
+        
         for cell in mesh.cells {
-            for v in cell.vertices{
-                fmt.fprintfln(vtk_w.handle, "%d", v)
-                cur_offset += 1
+            for v in cell.vertices {
+                append(&connectivity_data, i32(v))
             }
-            append(&cell_offsets, cur_offset)
         }
+        
+        vtk_write_binary_data(&vtk_w, slice_to_bytes(connectivity_data[:]))
         vtk_close_tag(&vtk_w)
 
         vtk_open_tag(&vtk_w, .DataArray, {
-            {"type", "Int32"}, {"Name", "offsets"}, {"format", "ascii"},
+            {"type", "Int32"}, 
+            {"Name", "offsets"}, 
+            {"format", "binary"},
         })
-        for o in cell_offsets{
-            fmt.fprintfln(vtk_w.handle, "%d", o)
+        
+        offsets_data := make([]i32, len(mesh.cells))
+        defer delete(offsets_data)
+        
+        cur_offset: i32 = 0
+        for cell, i in mesh.cells {
+            cur_offset += i32(len(cell.vertices))
+            offsets_data[i] = cur_offset
         }
+        
+        vtk_write_binary_data(&vtk_w, slice_to_bytes(offsets_data))
         vtk_close_tag(&vtk_w)
 
         vtk_open_tag(&vtk_w, .DataArray, {
-            {"type", "Int64"}, {"Name", "types"}, {"format", "ascii"},
+            {"type", "Int32"}, 
+            {"Name", "types"}, 
+            {"format", "binary"},
         })
-        Type :: enum {Tri = 5, Quad = 9}
-        for cell in mesh.cells {
+        
+        Type :: enum i32 {Tri = 5, Quad = 9}
+        types_data := make([]i32, len(mesh.cells))
+        defer delete(types_data)
+        
+        for cell, i in mesh.cells {
             switch len(cell.vertices) {
-                case 3: fmt.fprintfln(vtk_w.handle, "%d", i32(Type.Tri))
-                case 4: fmt.fprintfln(vtk_w.handle, "%d", i32(Type.Quad))
+                case 3: types_data[i] = i32(Type.Tri)
+                case 4: types_data[i] = i32(Type.Quad)
                 case: panic("Unsupported element in vtk output, this means the mesh import validation failed.")
             }
         }
+        
+        vtk_write_binary_data(&vtk_w, slice_to_bytes(types_data))
         vtk_close_tag(&vtk_w)
     }
 
@@ -170,38 +221,46 @@ vtk_write_vtu :: proc(
         defer vtk_close_tag(&vtk_w)
 
         for vf, i in vfs {
-            write_vf(&vtk_w, vf, vf_names[i])
+            write_vf_binary(&vtk_w, vf, vf_names[i])
         }
         for sf, i in sfs {
-            write_sf(&vtk_w, sf, sf_names[i])
+            write_sf_binary(&vtk_w, sf, sf_names[i])
         }
     }
 
     return output_path, true
 
-    write_vf :: proc(vtk_w: ^VTK_Writer, vf: cfd.Vector_Field, name: string) {
+    write_vf_binary :: proc(vtk_w: ^VTK_Writer, vf: cfd.Vector_Field, name: string) {
         vtk_open_tag(vtk_w, .DataArray, {
-            {"type", "Float64"}, {"Name", name}, {"NumberOfComponents", "3"}, {"format", "ascii"},
+            {"type", "Float64"}, 
+            {"Name", name}, 
+            {"NumberOfComponents", "3"}, 
+            {"format", "binary"},
         })
         defer vtk_close_tag(vtk_w)
 
-        for _, i in vf.components.x.data{
+        vector_data := make([]f64, len(vf.components.x.data) * 3)
+        defer delete(vector_data)
+        
+        for _, i in vf.components.x.data {
             vec := cfd.vector_field_at(vf, i)
-            fmt.fprintfln(vtk_w.handle, "%e", vec.x)
-            fmt.fprintfln(vtk_w.handle, "%e", vec.y)
-            fmt.fprintfln(vtk_w.handle, "%e", 0.0)
-
+            vector_data[i*3 + 0] = vec.x
+            vector_data[i*3 + 1] = vec.y
+            vector_data[i*3 + 2] = 0.0
         }
+        
+        vtk_write_binary_data(vtk_w, slice_to_bytes(vector_data))
     }
 
-    write_sf :: proc(vtk_w: ^VTK_Writer, sf: cfd.Scalar_Field, name: string) {
+    write_sf_binary :: proc(vtk_w: ^VTK_Writer, sf: cfd.Scalar_Field, name: string) {
         vtk_open_tag(vtk_w, .DataArray, {
-            {"type", "Float64"}, {"Name", name}, {"format", "ascii"},
+            {"type", "Float64"}, 
+            {"Name", name}, 
+            {"format", "binary"},
         })
         defer vtk_close_tag(vtk_w)
-        for d in sf.data{
-            fmt.fprintfln(vtk_w.handle, "%e", d)
-        }
+        
+        vtk_write_binary_data(vtk_w, slice_to_bytes(sf.data))
     }
 }
 

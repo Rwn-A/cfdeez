@@ -19,7 +19,7 @@ boundaries: {
 
 time: {
     timestep: 0.05
-    steps:  20
+    steps:  100
     output_frequency: 1
 }
 
