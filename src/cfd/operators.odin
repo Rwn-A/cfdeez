@@ -14,116 +14,100 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-
 package cfd
 
 import "core:log"
 import "core:math/linalg"
+import "core:slice"
 
-// TODO: document underlying math.
+// Math References: https://doc.cfd.direct/notes/cfd-general-principles
+// Implementation entirely our own.
 
-// -- Explicit Operators --
+// -- Explicit operations, requires only known field values --
 
-// These will always recompute the value, in most cases it's better to use field_** functions
+compute_value_across_face :: proc(mesh: Mesh, val1, val2: f64, cid1, cid2: CellId, face: Face) -> f64 {
+	c1 := mesh.cells[cid1]; c2 := mesh.cells[cid2]
+	face := face_ensure_outward(c1, face)
+	d1 := cell_face_delta(c1, face)
+	d2 := -cell_face_delta(c2, face)
+	weight := linalg.dot(face.normal, d2) / linalg.dot(face.normal, d2 + d1)
+	return (weight * val1) + ((1 - weight) * val2)
+}
 
-compute_faces_interpolate :: proc(mesh: Mesh, field: Field, faces_out: Face_Data) {
+compute_faces_interpolate :: proc(mesh: Mesh, field: Scalar_Field, faces_out: Face_Data) {
 	for face, face_id in mesh.faces {
-		primary := mesh.cells[face.primary]
-		distance_primary := (face.position - primary.position)
-		if secondary_idx, has_secondary := face.secondary.?; has_secondary {
-			secondary := mesh.cells[secondary_idx]
-			distance_secondary := (secondary.position - face.position)
-			weight :=
-				linalg.dot(face.normal, distance_secondary) /
-				linalg.dot(face.normal, distance_secondary + distance_primary)
-			faces_out[face_id] = (weight * field.data[face.primary]) + ((1 - weight) * field.data[secondary_idx])
-		} else {
-			bc :=
-				field.boundary_conditions[face.boundary_tag.?] or_else panic(
-					"Face has no neighbour, but does not have a boundary set.",
-				)
+		distance_primary := cell_face_delta(mesh.cells[face.primary], face)
+
+		switch id in face.secondary {
+		case BoundaryId:
+			bc := field.bnds[id] or_else log.panicf("Boundary id %d was not set on field.", id)
 			switch bc.kind {
 			case .Dirichlet:
 				faces_out[face_id] = bc.value
 			case .Neumann:
 				faces_out[face_id] = field.data[face.primary] + bc.value * linalg.dot(distance_primary, face.normal)
 			}
+		case CellId:
+			val := compute_value_across_face(mesh, field.data[face.primary], field.data[id], face.primary, id, face)
+			faces_out[face_id] = val
 		}
 	}
 }
 
-compute_flux :: proc(mesh: Mesh, vf_faces: [2]Face_Data, flux_out: Face_Data) {
+compute_flux :: proc(mesh: Mesh, vf_faces: [VF_COMPONENTS]Face_Data, flux_out: Face_Data) {
 	for &flux, face_id in flux_out {
-		flux = linalg.dot(
-			Vector{vf_faces.x[face_id], vf_faces.y[face_id]},
-			mesh.faces[face_id].normal * mesh.faces[face_id].area,
-		)
+		flux = linalg.dot(Vector{vf_faces.x[face_id], vf_faces.y[face_id]}, face_area_v(mesh.faces[face_id]))
 	}
 }
 
-compute_divergence :: proc(mesh: Mesh, flux: Face_Data, field_out: Cell_Data) {
+compute_divergence :: proc(mesh: Mesh, flux: Face_Data, field_out: []f64) {
 	for cell, cell_id in mesh.cells {
 		flux_sum := 0.0
 		for face_id in cell.faces {
-			face_geometry := mesh.faces[face_id]
-			is_owner := true if cell_id == face_geometry.primary else false
-			flux_sum += flux[face_id] if is_owner else -flux[face_id]
+			flux_sum += flux[face_id] if cell_is_owner(cell_id, mesh.faces[face_id]) else -flux[face_id]
 		}
 		field_out[cell_id] = flux_sum / cell.volume
 	}
 }
 
-compute_gradient :: proc(mesh: Mesh, faces: Face_Data, field: Cell_Data, gradient_out: [2]Cell_Data) {
+compute_gradient :: proc(mesh: Mesh, faces: Face_Data, field_data: []f64, gradient_out: [VF_COMPONENTS][]f64) {
 	for cell, cell_id in mesh.cells {
+		gradient_out.x[cell_id] = 0;gradient_out.y[cell_id] = 0
 		for face_id in cell.faces {
-			face_geometry := mesh.faces[face_id]
-			is_owner := true if cell_id == face_geometry.primary else false
-			normal := face_geometry.normal if is_owner else -face_geometry.normal
-			face_area_vector := normal * face_geometry.area
+			face_geometry := face_ensure_outward(cell, mesh.faces[face_id])
+			face_area_vector := face_area_v(face_geometry)
 			gradient_out.x[cell_id] += faces[face_id] * face_area_vector.x / cell.volume
 			gradient_out.y[cell_id] += faces[face_id] * face_area_vector.y / cell.volume
 		}
 	}
-    apply_gradient_limiting(mesh, field, gradient_out)
+	apply_gradient_limiting(mesh, field_data, gradient_out)
 }
 
-//Note: without this unstructered grids misbehave
-apply_gradient_limiting :: proc(mesh: Mesh, cell_values: Cell_Data, gradient_out: [2]Cell_Data) {
-	for cell, cell_id in mesh.cells {
-		grad_x := gradient_out.x[cell_id]
-		grad_y := gradient_out.y[cell_id]
 
-		cell_value := cell_values[cell_id]
+@(private = "file")
+apply_gradient_limiting :: proc(mesh: Mesh, field_data: []f64, gradient_out: [VF_COMPONENTS][]f64) {
+	for cell, cell_id in mesh.cells {
+		cell_value := field_data[cell_id]
 		min_neighbor := cell_value
 		max_neighbor := cell_value
 
 		for face_id in cell.faces {
-			face_geometry := mesh.faces[face_id]
+			face := mesh.faces[face_id]
+			neighbour_id := cell_neighbour(cell_id, face) or_continue
+			neighbour_value := field_data[neighbour_id]
 
-			if _, has_secondary := face_geometry.secondary.?; !has_secondary do continue
-
-			neighbor_id := face_geometry.secondary.? if cell_id == face_geometry.primary else face_geometry.primary
-			neighbor_value := cell_values[neighbor_id]
-
-			min_neighbor = min(min_neighbor, neighbor_value)
-			max_neighbor = max(max_neighbor, neighbor_value)
+			min_neighbor = min(min_neighbor, neighbour_value)
+			max_neighbor = max(max_neighbor, neighbour_value)
 		}
 
 		limiter := 1.0
 
 		for face_id in cell.faces {
-			face_geometry := mesh.faces[face_id]
+			face := mesh.faces[face_id]
+			neighbour_id := cell_neighbour(cell_id, face) or_continue
 
-			if _, has_secondary := face_geometry.secondary.?; !has_secondary do continue
-
-			neighbor_id := face_geometry.secondary.? if cell_id == face_geometry.primary else face_geometry.primary
-
-			neighbor_center := mesh.cells[neighbor_id].position
-			cell_center := mesh.cells[cell_id].position
-			dr := neighbor_center - cell_center
-
-			extrapolated_value := cell_value + grad_x * dr.x + grad_y * dr.y
-
+			d := cell_delta(mesh.cells[cell_id], mesh.cells[neighbour_id])
+			extrapolated_value := cell_value + gradient_out.x[cell_id] * d.x + gradient_out.y[cell_id] * d.y
 			if extrapolated_value > max_neighbor {
 				face_limiter := (max_neighbor - cell_value) / (extrapolated_value - cell_value)
 				limiter = min(limiter, face_limiter)
@@ -138,136 +122,75 @@ apply_gradient_limiting :: proc(mesh: Mesh, cell_values: Cell_Data, gradient_out
 	}
 }
 
+// -- Implicit operators, to create equations for currently unknown field values --
 
-// -- Implicit Operators --
-
-// no orthogonal correction, you can always use the corrected version even on an orthogonal mesh
-add_laplacian_no_correction :: proc(
-	lsb: ^Linear_System_Builder,
-	mesh: Mesh,
-	field: Field,
-	cell_id: CellId,
-	multiplier: f64,
-) {
-	for face_id in mesh.cells[cell_id].faces {
-		ctx := get_face_context(mesh, cell_id, face_id)
-		cell := mesh.cells[cell_id]
-		face_area_magnitude := linalg.length(ctx.normal * ctx.face.area)
-		if neighbour_id, has_neighbour := ctx.neighbour.?; has_neighbour {
-			coeff :=
-				(1 / distance_cell(cell, mesh.cells[neighbour_id])) * face_area_magnitude * multiplier * f64(lsb.mode)
-			lsb.row_builder[cell_id] += -coeff
-			lsb.row_builder[neighbour_id] += coeff
-		} else {
-			bc :=
-				field.boundary_conditions[ctx.face.boundary_tag.?] or_else panic(
-					"Face has no neighbour, but does not have a boundary set.",
-				)
-			switch bc.kind {
-			case .Dirichlet:
-				coeff := (1 / distance_face(cell, ctx.face)) * face_area_magnitude * multiplier * f64(lsb.mode)
-				lsb.source_terms[cell_id] -= coeff * bc.value
-				lsb.row_builder[cell_id] += -coeff
-			case .Neumann:
-				lsb.source_terms[cell_id] -= face_area_magnitude * bc.value * multiplier * f64(lsb.mode)
-			}
-		}
-	}
-}
-
-//laplacian with corrections for a non-orthogonal mesh (vector from cell centroids is not colinear with face normal)
-add_laplacian :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: ^Field, cell_id: CellId, multiplier: f64) {
+add_laplacian :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: ^Scalar_Field, cell_id: CellId, multiplier: f64) {
 	grad := field_gradient(mesh, field)
+	cell := mesh.cells[cell_id]
 	for face_id in mesh.cells[cell_id].faces {
-		ctx := get_face_context(mesh, cell_id, face_id)
-		cell := mesh.cells[cell_id]
-		face_area_magnitude := linalg.length(ctx.normal * ctx.face.area)
-		if neighbour_id, has_neighbour := ctx.neighbour.?; has_neighbour {
-			ctx.face.normal = ctx.normal
+		face := face_ensure_outward(cell, mesh.faces[face_id])
+		face_area_mag := linalg.length(face_area_v(face))
+
+		if neighbour_id, has := cell_neighbour(cell_id, face); has {
 			neighbour := mesh.cells[neighbour_id]
-			cd := (1.0 / distance_cell_ortho(cell, neighbour, ctx.face))
-			coeff := cd * face_area_magnitude * multiplier * f64(lsb.mode)
+			cd := (1.0 / cell_ortho_distance(cell, neighbour, face))
+			coeff := cd * face_area_mag * multiplier * f64(lsb.mode)
 			lsb.row_builder[cell_id] += -coeff
 			lsb.row_builder[neighbour_id] += coeff
 
 			//ortho correction term
-			d := neighbour.position - cell.position
-			d_hat := d / linalg.length(d)
-			corr := ctx.normal - d_hat
-			distance_primary := (ctx.face.position - cell.position)
-			distance_secondary := (neighbour.position - ctx.face.position)
-			weight :=
-				linalg.dot(ctx.normal, distance_secondary) /
-				linalg.dot(ctx.normal, distance_secondary + distance_primary)
-			gradxf := (weight * grad.x[cell_id]) + ((1 - weight) * grad.x[neighbour_id])
-			gradyf := (weight * grad.y[cell_id]) + ((1 - weight) * grad.y[neighbour_id])
+			d_unit := linalg.normalize(cell_delta(cell, neighbour))
+			corr := face.normal - d_unit
+			gradxf := compute_value_across_face(mesh, grad.x[cell_id], grad.x[neighbour_id], cell_id, neighbour_id, face)
+			gradyf := compute_value_across_face(mesh, grad.y[cell_id], grad.y[neighbour_id], cell_id, neighbour_id, face)
 			lsb.source_terms[cell_id] -=
-				linalg.dot(corr, [2]f64{gradxf, gradyf}) * face_area_magnitude * multiplier * f64(lsb.mode)
+				linalg.dot(corr, [2]f64{gradxf, gradyf}) * face_area_mag * multiplier * f64(lsb.mode)
 		} else {
-			bc :=
-				field.boundary_conditions[ctx.face.boundary_tag.?] or_else panic(
-					"Face has no neighbour, but does not have a boundary set.",
-				)
+			id := face.secondary.(BoundaryId)
+			bc := field.bnds[id] or_else log.panicf("Boundary id %d was not set on field.", id)
 			switch bc.kind {
 			case .Dirichlet:
-				coeff := (1 / distance_face(cell, ctx.face)) * face_area_magnitude * multiplier * f64(lsb.mode)
+				coeff := (1.0 / cell_face_ortho_distance(cell, face)) * face_area_mag * multiplier * f64(lsb.mode)
 				lsb.source_terms[cell_id] -= coeff * bc.value
 				lsb.row_builder[cell_id] += -coeff
 			case .Neumann:
-				lsb.source_terms[cell_id] -= face_area_magnitude * bc.value * multiplier * f64(lsb.mode)
+				lsb.source_terms[cell_id] -= face_area_mag * bc.value * multiplier * f64(lsb.mode)
 			}
+
 		}
 	}
 }
 
 
-//upwind scheme advection
-//TODO: more accurate scheme, like linear upwind or QUICK
-add_advection :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: Field, volume_flux: Face_Data, cell_id: CellId) {
-	for face_id in mesh.cells[cell_id].faces {
-		ctx := get_face_context(mesh, cell_id, face_id)
-		flux := volume_flux[face_id] if ctx.is_primary else -volume_flux[face_id]
-		if neighbour_id, has_neighbour := ctx.neighbour.?; has_neighbour {
+add_advection :: proc(
+	lsb: ^Linear_System_Builder,
+	mesh: Mesh,
+	field: Scalar_Field,
+	volume_flux: Face_Data,
+	cell_id: CellId,
+) {
+	cell :=  mesh.cells[cell_id]
+	for face_id in cell.faces{
+		face := face_ensure_outward(cell, mesh.faces[face_id])
+		flux := volume_flux[face_id] if cell_is_owner(cell_id, face) else -volume_flux[face_id]
+		if neighbour_id, has := cell_neighbour(cell_id, face); has {
 			lsb.row_builder[cell_id if flux >= 0 else neighbour_id] += flux * f64(lsb.mode)
 		} else {
-			bc :=
-				field.boundary_conditions[ctx.face.boundary_tag.?] or_else log.panic(
-					"Face has no neighbour, but does not have a boundary set.",
-				)
+			id := face.secondary.(BoundaryId)
+			bc := field.bnds[id] or_else log.panicf("Boundary id %d was not set on field.", id)
 			switch bc.kind {
 			case .Dirichlet:
 				lsb.source_terms[cell_id] -= flux * bc.value * f64(lsb.mode)
 			case .Neumann:
 				lsb.row_builder[cell_id] += flux * f64(lsb.mode)
 				lsb.source_terms[cell_id] -=
-					bc.value * flux * distance_face(mesh.cells[cell_id], ctx.face) * f64(lsb.mode)
+					bc.value * flux * cell_face_ortho_distance(mesh.cells[cell_id], face) * f64(lsb.mode)
 			}
 		}
 	}
 }
 
-//1st order fully implicit euler, stable but lacking in accuracy
-//TODO: higher order schemes
-add_time :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: Field, cell_id: CellId, dt: f64) {
+add_time :: proc(lsb: ^Linear_System_Builder, mesh: Mesh, field: Scalar_Field, cell_id: CellId, dt: f64) {
 	lsb.row_builder[cell_id] += f64(lsb.mode) * mesh.cells[cell_id].volume / dt
 	lsb.source_terms[cell_id] += f64(lsb.mode) * field.data[cell_id] * (mesh.cells[cell_id].volume / dt)
-}
-
-// -- Utilities --
-
-@(private = "file")
-FaceContext :: struct {
-	face:       Face,
-	is_primary: bool,
-	normal:     Vector,
-	neighbour:  Maybe(CellId),
-}
-
-@(private = "file")
-get_face_context :: proc(mesh: Mesh, cell_id: CellId, face_id: FaceId) -> FaceContext {
-	face := mesh.faces[face_id]
-	is_primary := cell_id == face.primary
-	normal := face.normal if is_primary else -face.normal
-	neighbour: Maybe(CellId) = face.secondary if is_primary else face.primary
-	return FaceContext{face, is_primary, normal, neighbour}
 }

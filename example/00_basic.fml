@@ -2,12 +2,12 @@
 name: "ex0"
 
 mesh: { path: "uniform.msh" }
-output: { formats: [VTU], directory: "../.out" }
+output: { formats: [VTK], directory: "../.out" }
 physics: [Transport]
-fluid: { viscosity: 1e-6, density: 1 }
+fluid: { viscosity: 1e-2, density: 1 }
 
 velocity: {
-    inflow_profile: [1, 0]
+    inflow_profile: [<2 * y>, 0]
     initial_conditions: [1, 0]
 }
 
@@ -21,6 +21,6 @@ passives: [
     {
         name: "red dye",
         diffusivity: 1e-6,
-        inflow_profile: 1
+        inflow_profile: 1  
     }
 ]

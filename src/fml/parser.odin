@@ -1,8 +1,32 @@
+/*
+MIT License
+
+Copyright (c) 2025 Rowan Apps
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
 package fml
 
 import "core:mem"
 import "core:strconv"
 import "core:strings"
+import "core:fmt"
 
 Location :: struct {
 	row:  int,
@@ -49,6 +73,17 @@ Token :: struct {
 	kind:     Token_Kind,
 	data:     Token_Data,
 	location: Location,
+}
+
+// once called, you must use the string before calling again or it will be overwritten
+token_repr :: proc(tk: Token, allocator := context.allocator) -> string {
+	@(static) buf: [64]byte
+	switch data in tk.data{
+		case string: return data
+		case int: return strconv.itoa(buf[:], data)
+		case f64: return strconv.ftoa(buf[:], data, 'f', 8, 64)
+		case: return fmt.enum_value_to_string(tk.kind) or_else ""
+	}
 }
 
 @(private)

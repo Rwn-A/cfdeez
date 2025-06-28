@@ -7,8 +7,8 @@ for those interested in CFD.
 > Under active development, bugs to be expected.
 
 <p align="center">
-  <img src="./demo.png" alt="Demo Image" width="400"/>
-  <p align="center"><i>This shows a passive scalar, like dye or smoke, carried by fluid around an obstacle</i></p>
+  <img src="./demo.png" alt="Demo Image" width="600"/>
+  <p align="center"><i>Velocity profile around an object.</i></p>
 </p>
 
 ## Motivations
@@ -24,37 +24,26 @@ To get started with CFDeez, you’ll need the [Odin](https://odin-lang.org/) com
 git clone https://github.com/Rwn-A/cfdeez
 cd cfdeez
 
-# Build the CLI tool
-odin build src/cmd/cli -out:cfdeez -o:speed
+# Build the CLI tool (optimizations really help)
+odin build src/app/cli -out:cfdeez.exe -o:speed 
+# add -define:LOG_LINSOLVE_PROGRESS=true to see how the linear solvers are progressing if you run into non-convergence.
 
 # Run a basic example
-./cfdeez ./examples/00_basic.fml
+./cfdeez.exe ./example/00_basic.fml
 ```
 
 After this results will be saved to a `.out` directory located beside your executable.
 
-## Project Structure
-CFDeez is comprised of 3 components.
-1. CFD Library `/src/cfd`
-    - The core cfd code is its own library, it includes code for the fields, discritizations, linear systems and more
-    - Includes optional sub-packages for outputting fields, reading `.msh` files, and pre-built solver algorithims.
-2. Configuration Language `/src/fml`
-    - CFDeez uses a custom JSON esque configuration language called FML, FML can be used standalone
-    although I can't think of many use cases outside of this application.
-3. Application Interface `/src/cmd`
-    - The configuration language and CFD library are wrapped together into a single
-      executable with a predefined configuration schema.
-
 > [!TIP]
 >This documentation covers using cfdeez as a complete application.
 >If you're interested in using the CFD library or the FML configuration system on their own,
->see the individual `README.md` files in the `src/cfd/` and `src/fml/` directories.
+>best to read the code for the cfd library, there is a separate README for FML.
 
 ## Features and Limitations
-CFDeez is not designed as production CFD software. It is CPU only and single threaded.
-While we might add GPU processing and/or threading, it is not a guarantee and outside the scope of this project for now.
+CFDeez is not designed as production CFD software. It is CPU only.
+While we might add GPU processing, it is not a guarantee and outside the scope of this project for now.
 The primary goal of this project is to understand how CFD works, and write readable code that represents the physics. Specific
-discritization schemes are currently not configurable.
+discretization schemes are currently not configurable.
 
 Features:
 - ✅ 2D incompressible flow 
@@ -64,136 +53,77 @@ Features:
 - ✅ Output to VTU and CSV
 - ✅ Configurable
 
-Currently, we have no 1st party post-processing tools, best bet is to output to vtu and use something like
-[ParaView](https://www.paraview.org/)
+Currently, we have no 1st party post-processing tools, best bet is to use VTK output option and use something like
+[ParaView](https://www.paraview.org/), or pyvista with python. You can also output to CSV and write a custom visualization.
 
 ### Potential Features Under Consideration
 In no particular order, the below features are things we are interested in but have no current plans to attempt to implement.
-- Turbelence Modelling
+- Turbulence Modelling
 - 3D
 - 1st Party Mesh Generation
 - Compressible Flow
 - Configurable schemes
 - Native GUI application
 
-## Accuracy
-This is a engineering simulation in spirit so we have tried to use accurate methods. That being said, most discritizations are only first-order accurate, but implicit for stability.
-Higher order methods may be implemented in the future.
-
 ## Setup & Configuration
 The best way to learn the configuration options is to review the examples directory.
 Each example is numbered in order of complexity. There are also some prebuilt `.msh` files available.
 
 ### Writing your own config
-A configuration is 2 parts.
+A configuration consists of two parts.
 1. `.fml` file - Most of the configuration options are here, this is the file you pass to the executable.
 2. `.msh` file - this defines the mesh for your simulation, the path to this file is referenced in the main config file.
 
 To build a `.msh` file [gmsh](https://gmsh.info/) is required. Or you can convert from another format using something like
 [meshio](https://github.com/nschloe/meshio).
 
-**Note:** only version 2.2 of the `.msh` format is supported for now.
+> [!IMPORTANT]
+> Incompressible flow uses unit density, scalar transport uses supplied density. 
+> This means pressure values are not completely accurate unless scaled. We currently do not do this scaling.
+
+> [!NOTE]
+> Only version 2.2 of the `.msh` format is supported for now.
 
 ### Config Options
-Below is a reference of all options available in the configuration file.
+> [!NOTE]
+> Comprehensive overview of all options will be held off until options mature.
 
-> [!TIP]
-> Defining some of the below options will require that other options also be defined. The application will tell you
-> if your missing an option and you can refer here for what it means and how to define it.
+## Project Structure
+CFDeez is comprised of 3 components.
+1. CFD Library `/src/cfd`
+    - The core cfd code is its own library, it includes code for the fields, discretizations, linear systems and more
+    - Includes optional sub-packages for outputting fields, reading `.msh` files, and pre-built solver algorithms.
+2. Configuration Language `/src/fml`
+    - CFDeez uses a custom JSON esque configuration language called FML, FML can be used standalone
+    although I can't think of many use cases outside of this application.
+3. Application Interface `/src/app`
+    - The configuration language and CFD library are wrapped together into a single
+      executable with a predefined configuration schema.
 
-#### `name`
-**Type**: String  
-**Required**: Yes  
-**Description**: Identifier for the simulation case.
+## Accuracy
+This is an engineering simulation in spirit so we have tried to use accurate methods. That being said, most discretizations are only first-order accurate, but implicit for stability.
+Higher order methods may be implemented in the future.
 
-#### `mesh`
-**Type**: Object  
-**Required**: Yes  
-**Description**: Defines the computational mesh for the simulation.
-
-##### Parameters
-- `path` (string): Path to the mesh file
-
-#### `fluid`
-**Type**: Object  
-**Required**: Yes  
-**Description**: Defines fluid material properties.
-
-##### Parameters
-- `density` (number): Fluid density 
-- `viscosity` (number): Dynamic viscosity 
-
-#### `physics`
-**Type**: Array  
-**Required**: Yes  
-**Description**: List of physics models to enable in the simulation.
-
-##### Supported Models
-- `IncFlow`: Incompressible flow (Navier-Stokes)
-- `Transport`: Scalar transport equations
-
-#### `output`
-**Type**: Object  
-**Required**: Yes  
-**Description**: Controls simulation output settings.
-
-##### Parameters
-- `directory` (string): Output directory path
-- `formats` (array): List of output formats
-  - Supported formats: `VTU`, `CSV`
-
-#### `time`
-**Type**: Object  
-**Required**: No  
-**Description**: Time integration and output control parameters.
-
-##### Parameters
-- `timestep` (number): Time step size 
-- `steps` (integer): Total number of time steps to simulate
-- `output_frequency` (integer, optional): Output results every N time steps (default: 1)
-- `enable_pvd` (boolean, optional): Enable ParaView Data file generation (default: true if VTU is enabled above)
-
-#### `boundaries`
-**Type**: Object  
-**Required**: Yes  
-**Description**: Maps boundary condition types to mesh boundary names.
-
-##### Parameters
-- `wall` (array, optional): List of mesh boundary names for wall (no-slip) conditions
-- `inflow` (array, optional): List of mesh boundary names for inflow conditions
-- `outflow` (array, optional): List of mesh boundary names for outflow conditions
-
-#### `velocity`
-**Type**: Object  
-**Required**: Yes  
-**Description**: Velocity field boundary conditions and initial conditions.
-
-##### Parameters
-- `inflow_profile` (array[2]): Velocity components at inflow boundaries [u, v]
-  - Each component can be: number, expression
-- `initial_conditions` (array[2]): Initial velocity field throughout domain [u, v]
-  - Each component can be: number, string (file path), expression
-
-#### `passives`
-**Type**: Array  
-**Required**: No  
-**Description**: Defines passive scalar species for transport simulation.
-
-##### Parameters (per passive scalar)
-- `name` (string): Descriptive name for the scalar
-- `diffusivity` (number): Molecular diffusivity 
-- `inflow_profile` (number or expression, optional): Scalar concentration at inflow boundaries
-- `initial_condition` (number, string, or expression, optional): Initial scalar field
-  - Number: uniform value
-  - String: file path to initial condition data
-  - Expression: mathematical expression
+## Validation
+We haven’t done much verification against analytical cases yet. So far, most of it has been based on visual inspection. Channel flow and the backward-facing step appeared to agree reasonably well with analytical solutions. Rigorous testing may/should be done in the future.
 
 ## License
-The CFD library and application code are licensed under the **GPL** license.
+The CFD library and application code are licensed under the **GPLv3** license.
 The FML configuration language is licensed separately under the **MIT** license.
-
-For specific licensing information, please refer to the LICENSE file in the root directory
-and the LICENSE file located in the `src/fml` directory.
 
 ## Contributing
 Any and all contributions welcome, that does **not** mean any and all contributions will be accepted.
+
+## References
+- [1] H. K. Versteeg and W. Malalasekera, *An Introduction to Computational Fluid Dynamics: The Finite Volume Method*, 2nd ed. Harlow, England: Pearson Education, 2007.
+
+- [2] J. H. Ferziger, M. Perić, and R. L. Street, *Computational Methods for Fluid Dynamics*, 4th ed. Cham, Switzerland: Springer, 2020.
+
+- [3] "CFD Direct," CFD Direct Documentation, Accessed: Apr 18, 2025. [Online]. Available: https://doc.cfd.direct/
+
+- [4] "OpenFOAM – Official home of The Open Source CFD Toolbox," OpenFOAM Foundation, Accessed: Jun. 18, 2025. [Online]. Available: https://openfoam.org/
+
+- [5] Fluid Mechanics 101, *YouTube*, [Online]. Available: https://www.youtube.com/@fluidmechanics101
+
+
+    

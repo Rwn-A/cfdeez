@@ -1,4 +1,28 @@
 /*
+MIT License
+
+Copyright (c) 2025 Rowan Apps
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+/*
 FML - Fluid Markup Language
 
 FML is a JSON like configuration format with an added expression parser for host evalauted expressions.
@@ -86,6 +110,7 @@ log_error :: proc(err_union: Unmarshal_Error) {
 		return fmt.bprintf(buf[:], "%s:%d:%d", l.path, l.row, l.col)
 	}
 
+
 	switch err in err_union {
 	case Unexpected_Char:
 		if exp, did_expect := err.expected.?; did_expect {
@@ -95,15 +120,16 @@ log_error :: proc(err_union: Unmarshal_Error) {
 		}
 	case Unexpected_Token:
 		if exp, did_expect := err.expected.?; did_expect {
-			log.errorf("%s Unexpected token %s expected %s", loc_str(err.got.location), err.got.kind, exp)
+			log.errorf("%s Unexpected token %s expected %s", loc_str(err.got.location), token_repr(err.got), exp)
 		} else {
-			log.errorf("%s Unexpected token %s", loc_str(err.got.location), err.got.kind)
+			log.errorf("%s Unexpected token %s", loc_str(err.got.location), token_repr(err.got))
 		}
 	case Type_Error:
 		log.errorf(
-			"%s Value provided did not match expected type %v",
+			"%s Value %s provided did not match expected type %v",
 			loc_str(err.got.location),
-			type_info_of(err.expected),
+			token_repr(err.got),
+			type_info_of(err.expected), 
 		)
 	case Missing_Key:
 		log.errorf("Schema expected a key %s in table %s", err.key, err.table)

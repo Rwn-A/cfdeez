@@ -14,13 +14,14 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-
 package cfd
 
 import "base:runtime"
 import "core:log"
 import "core:math"
 import "core:slice"
+
+LOG_LINSOLVE_PROGRESS :: #config(LOG_LINSOLVE_PROGRESS, false)
 
 // Warning: This code assumes the linear system is built in order, that is coefficents for cell 0 are added, then cell 1 and so on.
 
@@ -39,7 +40,8 @@ Linear_System_Builder :: struct {
 }
 
 NUM_NEIGHBOURS_GUESS :: 5
-//Note: A natural choice for this allocator would be the main case arena
+
+//Note: A natural choice for this allocator would some arena, probably same one as the mesh.
 linear_system_builder_new :: proc(mesh: Mesh, allocator := context.allocator) -> Linear_System_Builder {
 	context.allocator = allocator
 	return {
@@ -63,11 +65,8 @@ linear_system_builder_destroy :: proc(lsb: ^Linear_System_Builder) {
 }
 
 //Warning: This does NOT clone any memory, if builder is reset, system is no longer valid.
-linear_system_builder_assemble :: proc(lsb: ^Linear_System_Builder) -> (Linear_System) {
-	return {
-		M = {values = lsb.values[:], row_indices = lsb.row_indices, columns = lsb.columns[:]},
-		b = cast(Cell_Data)(lsb.source_terms),
-	}
+linear_system_builder_assemble :: proc(lsb: ^Linear_System_Builder) -> Linear_System {
+	return {M = {values = lsb.values[:], row_indices = lsb.row_indices, columns = lsb.columns[:]}, b = lsb.source_terms}
 }
 
 linear_system_builder_reset :: proc(lsb: ^Linear_System_Builder) {
@@ -143,36 +142,35 @@ matrix_get_coeff :: proc(M: Matrix, row: int, column: int) -> f64 {
 	return 0
 }
 
+
 Solver_Memory :: struct {
-	r: []f64,
-	z: []f64,
-	p: []f64,
-	Ap: []f64,
-	temp: []f64,
+	r:        []f64,
+	z:        []f64,
+	p:        []f64,
+	Ap:       []f64,
+	temp:     []f64,
 	inv_diag: []f64,
 }
 
 
-// The below two functions are specific to cfd library the rest of the linalg code is just a bunch of []f64 
-// with no allocations
-solver_memory_create :: proc() -> Solver_Memory {
-	return Solver_Memory{
-		r = cast([]f64)field_pool_cell_data(&field_pool),
-		z = cast([]f64)field_pool_cell_data(&field_pool),
-		p = cast([]f64)field_pool_cell_data(&field_pool),
-		Ap = cast([]f64)field_pool_cell_data(&field_pool),
-		temp = cast([]f64)field_pool_cell_data(&field_pool),
-		inv_diag = cast([]f64)field_pool_cell_data(&field_pool),
+linsolve_memory_from_field_pool :: proc(pool: ^Field_Data_Pool) -> Solver_Memory {
+	return Solver_Memory {
+		r = field_pool_cell_data(pool),
+		z = field_pool_cell_data(pool),
+		p = field_pool_cell_data(pool),
+		Ap = field_pool_cell_data(pool),
+		temp = field_pool_cell_data(pool),
+		inv_diag = field_pool_cell_data(pool),
 	}
 }
 
-solver_memory_destroy :: proc(mem: ^Solver_Memory) {
-	field_pool_return(&field_pool, cast(Cell_Data)mem.r)
-	field_pool_return(&field_pool, cast(Cell_Data)mem.z)
-	field_pool_return(&field_pool, cast(Cell_Data)mem.p)
-	field_pool_return(&field_pool, cast(Cell_Data)mem.Ap)
-	field_pool_return(&field_pool, cast(Cell_Data)mem.temp)
-	field_pool_return(&field_pool, cast(Cell_Data)mem.inv_diag)
+linsolve_memory_return_to_pool :: proc(mem: ^Solver_Memory, pool: ^Field_Data_Pool) {
+	field_pool_return_cell_data(pool, mem.r)
+	field_pool_return_cell_data(pool, mem.z)
+	field_pool_return_cell_data(pool, mem.p)
+	field_pool_return_cell_data(pool, mem.Ap)
+	field_pool_return_cell_data(pool, mem.temp)
+	field_pool_return_cell_data(pool, mem.inv_diag)
 }
 
 
@@ -205,17 +203,13 @@ Linsolve_Error :: enum {
 	Did_Not_Converge,
 }
 
-
-
 linear_system_solve_pcg :: proc(
 	ls: Linear_System,
-	out_field: ^Field,
+	out: []f64,
 	mem: ^Solver_Memory,
 	max_iterations := 1000,
 	tolerance := 1e-6,
 ) -> Linsolve_Error {
-	out := cast([]f64)out_field.data
-	field_dirty(out_field)
 	assert(len(ls.b) == len(out))
 	n := len(ls.b)
 
@@ -253,9 +247,11 @@ linear_system_solve_pcg :: proc(
 
 		// Check convergence
 		residual_norm := vector_norm(r)
-		if iter % (max_iterations / 10) == 0 do log.debugf("PCG residual: %e", residual_norm)
+		when LOG_LINSOLVE_PROGRESS {
+			if iter % (max_iterations / 10) == 0 do log.infof("PCG residual: %e", residual_norm)
+		}
 		if residual_norm < tolerance {
-			log.debugf("PCG converged after %d iterations", iter)
+			when LOG_LINSOLVE_PROGRESS { log.infof("linear solve: PCG converged after %d iterations", iter) }
 			return .None
 		}
 
@@ -276,13 +272,11 @@ linear_system_solve_pcg :: proc(
 
 linear_system_solve_pgs :: proc(
 	ls: Linear_System,
-	out_field: ^Field,
+	out: []f64,
 	mem: ^Solver_Memory,
 	max_iterations := 1000,
 	tolerance := 1e-6,
 ) -> Linsolve_Error {
-	out := cast([]f64)out_field.data
-	field_dirty(out_field)
 	assert(len(ls.b) == len(out))
 	n := len(ls.b)
 
@@ -322,16 +316,18 @@ linear_system_solve_pgs :: proc(
 			}
 		}
 
-		if iter % (max_iterations / 10) == 0 do log.debugf("PGS residual: %e", max_diff)
+		when LOG_LINSOLVE_PROGRESS {
+			if iter % (max_iterations / 10) == 0 do log.infof("PGS residual: %e", max_diff)
+		}
+		
 		if max_diff < tolerance {
-			log.debugf("PGS converged after %d iterations", iter)
+			when LOG_LINSOLVE_PROGRESS { log.infof("linear solve: PGS converged after %d iterations", iter) }
 			return .None
 		}
 	}
 
 	return .Did_Not_Converge
 }
-
 
 matrix_vector_multiply :: proc(M: Matrix, x: []f64, y: []f64) {
 	assert(len(x) == len(y))

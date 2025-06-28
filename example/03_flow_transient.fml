@@ -1,13 +1,13 @@
 name: "ex3"
 
-mesh: { path: "channel_obst.msh" }
-output: { formats: [VTU], directory: "../.out" }
-physics: [Transport, IncFlow]
+mesh: { path: "channel.msh" }
+output: { formats: [VTK], directory: "../.out" }
+physics: [IncFlow]
 fluid: { viscosity: 2e-2, density: 1 }
 
 velocity: {
-    inflow_profile: [2, 0]
-    initial_conditions: [0.1, 0]
+    inflow_profile: [0.5, 0]
+    initial_conditions: [0, 0]
 }
 
 boundaries: {
@@ -16,17 +16,10 @@ boundaries: {
     wall: ["wall"]
 }
 
-passives: [
-    {
-        name: "red dye",
-        diffusivity: 1e-6,
-        inflow_profile: 1
-    }
-]
 
 time: {
-    timestep: 0.001
-    steps: 100
+    timestep: 0.05
+    steps:  20
     output_frequency: 1
 }
 

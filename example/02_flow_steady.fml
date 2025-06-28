@@ -1,13 +1,13 @@
-name: "ex_steady"
+name: "ex2"
 
-mesh: { path: "obst.msh" }
-output: { formats: [VTU], directory: "../.out" }
-physics: [Transport, IncFlow]
+mesh: { path: "channel.msh" }
+output: { formats: [VTK], directory: "../.out" }
+physics: [IncFlow]
 fluid: { viscosity: 2e-2, density: 1 }
 
 velocity: {
-    inflow_profile: [2, 0]
-    initial_conditions: [0.1, 0]
+    inflow_profile: [0.5, 0]
+    initial_conditions: [0, 0]
 }
 
 boundaries: {
@@ -15,11 +15,3 @@ boundaries: {
     outflow: ["outflow"],
     wall: ["wall"]
 }
-
-passives: [
-    {
-        name: "red dye",
-        diffusivity: 1e-6,
-        inflow_profile: 1
-    }
-]
