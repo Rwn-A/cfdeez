@@ -85,8 +85,43 @@ To build a `.msh` file [gmsh](https://gmsh.info/) is required. Or you can conver
 > Only version 2.2 of the `.msh` format is supported for now.
 
 ### Config Options
-> [!NOTE]
-> Comprehensive overview of all options will be held off until options mature.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✓ | Simulation name |
+| **`mesh`** | object | ✓ | Mesh settings |
+| `mesh.path` | string | ✓ | Path to mesh file |
+| **`fluid`** | object | ✓ | Primary fluid properties |
+| `fluid.density` | number | ✓ | Fluid density |
+| `fluid.viscosity` | number | ✓ | Kinematic fluid viscosity |
+| `physics` | array | ✓ | Options: Transport, IncFlow |
+| **`output`** | object | ✓ | Output settings |
+| `output.directory` | string | ✓ | Output directory path |
+| `output.formats` | array | ✓ | Options: CSV, VTK |
+| **`time`** | object | - | Time stepping configuration |
+| `time.timestep` | number | ✓* | Time step size |
+| `time.steps` | integer | ✓* | Number of time steps |
+| `time.output_frequency` | integer | - | Output every N steps |
+| **`boundaries`** | object | ✓ | Boundary Conditions |
+| `boundaries.wall` | array | - | Wall boundary name(s) must match mesh |
+| `boundaries.inflow` | array | - | Inflow boundary name(s) must match mesh |
+| `boundaries.outflow` | array | - | Outflow boundary name(s) must match mesh |
+| `velocity` | object | ✓ | Settings for fluid velocity |
+| `velocity.inflow_profile` | array[2] | ✓** | Velocity components at inflow (number/expression) |
+| `velocity.initial_conditions` | array[2] | - | Initial velocity field (number/expression/string) |
+| **`passives`** | array | - | Passive scalar configurations |
+| `passives[].name` | string | ✓* | Passive scalar name |
+| `passives[].diffusivity` | number | ✓* | Diffusion coefficient |
+| `passives[].inflow_profile` | union | ✓** | Inflow value (number/expression) |
+| `passives[].initial_condition` | union | - | Initial field (number/expression/string) |
+
+- Units are SI, this project is proudly Canadian 🍁, no freedom units.
+- ✓* indicates that the section is required if the parent section is included
+- ✓** indicates that the section is required based on the presence of other sections.
+      The application will tell you if your missing an option.
+- To provide initial conditions from a file, provide the path as a string (this feature is currently unimplemented.)
+- To provide inflow profile & initial conditions based on mesh coordinates, you can use an expression. \
+  Such as `inflow_profile: <x + cos(y)>`, the basic math functions are supported, along with x and y to capture coordinates.
+- To provide a constant value for initial conditions & inflow, you can provide a number directly.
 
 ## Project Structure
 CFDeez is comprised of 3 components.

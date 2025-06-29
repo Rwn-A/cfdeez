@@ -31,22 +31,6 @@ import "../cfd"
 import cfd_io "../cfd/io"
 import "../fml"
 
-Primary_Fields :: struct {
-	u:        cfd.Vector_Field,
-	p:        cfd.Scalar_Field,
-	passives: []cfd.Scalar_Field,
-}
-
-Physics_Option :: enum {
-	Transport,
-	IncFlow,
-}
-
-Output_Option :: enum {
-	CSV,
-	VTK,
-}
-
 Case :: struct {
 	arena:                 vmem.Arena,
 	fp:                    cfd.Field_Data_Pool,
@@ -66,6 +50,22 @@ Case :: struct {
 	steps:                 int,
 	passive_names:         []string, //used for output files, index here matches index in fields.passives array.
 	passive_diffusivities: []f64, //index here matches index in fields.passives array.
+}
+
+Primary_Fields :: struct {
+	u:        cfd.Vector_Field,
+	p:        cfd.Scalar_Field,
+	passives: []cfd.Scalar_Field,
+}
+
+Physics_Option :: enum {
+	Transport,
+	IncFlow,
+}
+
+Output_Option :: enum {
+	CSV,
+	VTK,
 }
 
 //fixed value or expr
@@ -310,7 +310,6 @@ load_case :: proc(c: ^Case, path: string) -> (success: bool) {
 		}
 
 	}
-
 
 	return true
 }
