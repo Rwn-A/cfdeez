@@ -39,9 +39,9 @@ write_csv :: proc(mesh: cfd.Mesh, vfs: []Out_Vector_Field, sfs: []Out_Scalar_Fie
 		fmt.fprintf(file, ",%s.y", vf.name)
 	}
 	for sf in sfs {
-		fmt.fprintf(file, ",%", sf.name)
+		fmt.fprintf(file, ",%s", sf.name)
 	}
-	fmt.fprintf(file, "\n")
+	fmt.fprint(file, "\n")
 
 
 	for cell, i in mesh.cells {
@@ -50,9 +50,9 @@ write_csv :: proc(mesh: cfd.Mesh, vfs: []Out_Vector_Field, sfs: []Out_Scalar_Fie
 			fmt.fprintf(file, ",%e,%e", vf.data.x[i], vf.data.y[i])
 		}
 		for sf in sfs {
-			fmt.fprintf(file, ",e", sf.data[i])
+			fmt.fprintf(file, ",%e", sf.data[i])
 		}
-		fmt.fprintf(file, "\n")
+		fmt.fprint(file, "\n")
 	}
 	return true
 }

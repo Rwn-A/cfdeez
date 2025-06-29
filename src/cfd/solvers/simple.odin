@@ -22,8 +22,8 @@ import "core:fmt"
 // TODO: check for convergence instead of fixed iters.
 
 SIMPLE_ITERS :: 30
-MOMENTUM_RELAX :: 0.8
-PRESSURE_RELAX :: 0.4
+MOMENTUM_RELAX :: 1
+PRESSURE_RELAX :: 1
 
 SIMPLE_State_Vars :: struct {
 	u:       ^cfd.Vector_Field,

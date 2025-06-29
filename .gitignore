@@ -2,3 +2,6 @@
 .out
 notes.md
 odinfmt.json
+*.csv
+*.vtu
+*.pvd

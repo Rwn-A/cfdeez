@@ -22,6 +22,7 @@ import "core:os"
 import "core:slice"
 import "core:sync"
 import "core:thread"
+import "core:fmt"
 
 import "../../app"
 import "../../cfd"
@@ -48,9 +49,9 @@ main :: proc() {
 
 Thread_State :: struct {
 	buffers: ^Output_Buffers,
-	step:    ^int,
 	done:    ^bool,
 	ready:   ^sync.Cond,
+	thread_ready: ^sync.Cond, //thread might not be ready before first write
 }
 
 Output_Buffers :: struct {
@@ -90,16 +91,21 @@ run :: proc(config_path: string) -> bool {
 
 	done: bool
 	output_ready := sync.Cond{}
-	step := 0
+	thread_ready := sync.Cond{}
 
 	output_thread_state := Thread_State {
 		buffers = &output_buffers,
 		done    = &done,
 		ready   = &output_ready,
-		step    = &step,
+		thread_ready = &thread_ready,
 	}
 
 	output_thread := thread.create_and_start_with_poly_data2(&output_thread_state, &c, write_output)
+
+	//wait for output thread to be ready to process a frame
+	sync.lock(&output_buffers.mutex)
+    sync.cond_wait(&thread_ready, &output_buffers.mutex)
+	sync.unlock(&output_buffers.mutex)
 
 	// output initial conditions 
 	sync.lock(&output_buffers.mutex)
@@ -121,9 +127,7 @@ run :: proc(config_path: string) -> bool {
 	mass_flux := cfd.field_pool_face_data(&c.fp)
 	update_mass_flux(c.mesh, &c.fields.u, mass_flux, c.fluid.density)
 	log.info("Simulation running...")
-
 	for i in 1 ..= c.steps {
-		step = i
 		if .IncFlow in c.physics && is_transient {
 			err := solvers.pressure_projection(
 				c.mesh,
@@ -169,6 +173,11 @@ run :: proc(config_path: string) -> bool {
 	}
 	log.infof("Simulation complete! Output written to %s", c.output.directory)
 
+	sync.lock(&output_buffers.mutex)
+	write_output_buffers(output_buffers, c) // <--- add this
+	sync.cond_signal(&output_ready)
+	sync.unlock(&output_buffers.mutex)
+
 
 	sync.lock(&output_buffers.mutex)
 	done = true
@@ -194,29 +203,33 @@ write_output :: proc(state: ^Thread_State, c: ^app.Case) {
 	pvd_writer: cfd_io.VTK_Writer
 
 	dt, is_transient := c.timestep.?
-	if is_transient {
+	if is_transient && .VTK in c.output.format {
 		pvd_writer, _ = cfd_io.vtk_start_pvd(c.output.directory, c.name)
 	}
 	defer if is_transient {
 		cfd_io.vtk_end_pvd(&pvd_writer)
 	}
 
+	step := 0
+
 	for !state.done^ {
+		sync.cond_signal(state.thread_ready)
 		sync.lock(&state.buffers.mutex)
 		sync.cond_wait(state.ready, &state.buffers.mutex)
-
 		if !state.done^ {
 			if .VTK in c.output.format {
-				path := cfd_io.output_path(c.output.directory, c.name, "vtu", state.step^)
+				path := cfd_io.output_path(c.output.directory, c.name, "vtu", step)
 				if ok := cfd_io.vtk_write_vtu(c.mesh, {state.buffers.out_u}, state.buffers.out_scalars, path); ok && is_transient {
-					cfd_io.vtk_write_pvd_entry(&pvd_writer, path, dt * f64(state.step^))
+					cfd_io.vtk_write_pvd_entry(&pvd_writer, path, dt * f64(step))
 				}
 			}
 			if .CSV in c.output.format {
-				path := cfd_io.output_path(c.output.directory, c.name, "csv", state.step^)
+				path := cfd_io.output_path(c.output.directory, c.name, "csv", step)
 				cfd_io.write_csv(c.mesh, {state.buffers.out_u}, state.buffers.out_scalars, path)
 			}
+			step += 1
 		}
 		sync.unlock(&state.buffers.mutex)
+
 	}
 }

@@ -1,0 +1,17 @@
+name: "laminar_channel_flow"
+
+mesh: { path: "channel.msh" }
+output: { formats: [CSV], directory: "./" }
+physics: [IncFlow]
+fluid: { viscosity: 2e-2, density: 1 }
+
+velocity: {
+    inflow_profile: [0.5, 0]
+    initial_conditions: [0, 0]
+}
+
+boundaries: {
+    inflow: ["inflow"],
+    outflow: ["outflow"],
+    wall: ["wall"]
+}

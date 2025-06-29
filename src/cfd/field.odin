@@ -76,11 +76,8 @@ vector_field_at :: proc(vf: Vector_Field, idx: CellId) -> Vector {
 }
 
 /*
-	Note for future me: Whats the point of all this?
-	Basically, I wan't to do lazy computation for derived fields, after a mutation they need to be marked dirty
-	Instead of relying on the user to know when things should be marked dirty we protect the memory.
-	In release mode, we take off the protections for performance. This pattern is also pretty natural.
-
+	Planned usage:
+	
 	set up some equations by reading fields and derived fields
 	solve equation
 	start mutation
